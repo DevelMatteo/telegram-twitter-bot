@@ -9,6 +9,10 @@ import hashlib
 import threading
 from flask import Flask, request
 import logging
+import urllib3
+
+# Disabilita gli avvisi SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configurazione - SICUREZZA: Token viene da variabile d'ambiente
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -166,17 +170,27 @@ def scrape_twitter_nitter(username):
     """
     tweets = []
     
-    # Lista di istanze Nitter pubbliche
+    # Lista estesa di istanze Nitter pubbliche
     nitter_instances = [
         "https://nitter.net",
         "https://nitter.it",
         "https://nitter.privacydev.net",
-        "https://nitter.unixfox.eu",
-        "https://nitter.kavin.rocks"
+        "https://nitter.kavin.rocks",
+        "https://nitter.fdn.fr",
+        "https://nitter.1d4.us",
+        "https://nitter.esmailelbob.xyz",
+        "https://nitter.lunar.icu",
+        "https://n.ramle.be",
+        "https://nitter.weiler.rocks",
+        "https://nitter.sethforprivacy.com",
+        "https://nitter.cutelab.space",
+        "https://nitter.nl",
+        "https://nitter.mint.lgbt",
+        "https://nitter.bus-hit.me"
     ]
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
     for instance in nitter_instances:
@@ -184,7 +198,8 @@ def scrape_twitter_nitter(username):
             url = f"{instance}/{username}"
             logger.info(f"Tentativo con {instance}...")
             
-            response = requests.get(url, headers=headers, timeout=15)
+            # Disabilita la verifica SSL per istanze con certificati problematici
+            response = requests.get(url, headers=headers, timeout=15, verify=False)
             
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
