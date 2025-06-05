@@ -477,3 +477,102 @@ def tweet_monitor():
         # Aspetta 10 minuti prima del prossimo controllo
         logger.info(f"⏰ Prossimo controllo tra 10 minuti... ({len(load_registered_channels())} canali attivi)")
         time.sleep(600)
+
+# Flask routes per Render
+@app.route('/')
+def index():
+    """Route principale per verificare che il servizio sia attivo"""
+    return {
+        "status": "Bot attivo",
+        "bot_username": f"@{TWITTER_USERNAME}",
+        "canali_attivi": len(load_registered_channels()),
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.route('/health')
+def health():
+    """Health check per Render"""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
+def webhook():
+    """Webhook per ricevere messaggi da Telegram"""
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return ''
+    else:
+        return 'Bad Request', 400
+
+def setup_webhook():
+    """Configura il webhook per Telegram"""
+    if WEBHOOK_URL:
+        webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
+        try:
+            # Rimuovi webhook esistenti
+            bot.remove_webhook()
+            time.sleep(2)
+            
+            # Configura nuovo webhook
+            result = bot.set_webhook(url=webhook_url)
+            if result:
+                logger.info(f"✅ Webhook configurato: {webhook_url}")
+                
+                # Verifica che il webhook sia attivo
+                webhook_info = bot.get_webhook_info()
+                logger.info(f"📡 Webhook info: {webhook_info.url}")
+            else:
+                logger.error("❌ Errore nella configurazione del webhook")
+        except Exception as e:
+            logger.error(f"❌ Errore nel setup webhook: {e}")
+            # Fallback al polling se webhook fallisce
+            logger.info("🔄 Fallback al polling...")
+            start_polling_fallback()
+    else:
+        logger.warning("⚠️ WEBHOOK_URL non configurato, uso polling locale")
+        start_polling_fallback()
+
+def start_polling_fallback():
+    """Avvia polling come fallback se webhook non funziona"""
+    def polling_thread():
+        try:
+            logger.info("🔄 Avvio polling fallback...")
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        except Exception as e:
+            logger.error(f"Errore nel polling: {e}")
+    
+    polling = threading.Thread(target=polling_thread, daemon=True)
+    polling.start()
+
+def main():
+    """Funzione principale"""
+    logger.info("🤖 Avvio Bot Telegram Multi-Canale per Render")
+    logger.info(f"📢 Account Twitter monitorato: @{TWITTER_USERNAME}")
+    logger.info(f"🌐 Porta: {PORT}")
+    
+    # Configura webhook se siamo su Render
+    if WEBHOOK_URL:
+        setup_webhook()
+    
+    # Avvia il monitoraggio tweet in un thread separato
+    tweet_thread = threading.Thread(target=tweet_monitor, daemon=True)
+    tweet_thread.start()
+    
+    # Se eseguito direttamente (non con Gunicorn), avvia Flask
+    if __name__ == "__main__":
+        logger.info("🚀 Server Flask attivo (modalità sviluppo)")
+        app.run(host='0.0.0.0', port=PORT, debug=False)
+
+# Avvia automaticamente quando importato da Gunicorn
+if WEBHOOK_URL:
+    logger.info("🚀 Avvio automatico per Gunicorn")
+    main()
+
+if __name__ == "__main__":
+    # Verifica che il token sia configurato
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("❌ TELEGRAM_BOT_TOKEN non configurato!")
+        exit(1)
+    
+    main()
