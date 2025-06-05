@@ -107,6 +107,23 @@ def handle_new_member(message):
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """Gestisce il comando /start"""
+    # Se è un canale/gruppo, registralo automaticamente
+    if message.chat.type in ['group', 'supergroup', 'channel']:
+        chat_id = message.chat.id
+        chat_title = message.chat.title or "Chat Senza Nome"
+        
+        channels = load_registered_channels()
+        
+        # Controlla se il canale è già registrato
+        if not any(ch['chat_id'] == chat_id for ch in channels):
+            channels.append({
+                'chat_id': chat_id,
+                'chat_title': chat_title,
+                'added_date': datetime.now().isoformat()
+            })
+            save_registered_channels(channels)
+            logger.info(f"✅ Canale registrato via /start: {chat_title} (ID: {chat_id})")
+    
     bot.reply_to(
         message,
         f"🤖 **Bot Tweet @{TWITTER_USERNAME}**\n\n"
@@ -114,13 +131,52 @@ def handle_start(message):
         f"**Per usarlo:**\n"
         f"1️⃣ Aggiungimi al tuo canale/gruppo\n"
         f"2️⃣ Dammi i permessi per scrivere messaggi\n"
-        f"3️⃣ Fatto! Riceverai automaticamente i nuovi tweet\n\n"
+        f"3️⃣ Usa /register per registrare questo canale\n\n"
         f"**Comandi:**\n"
         f"/start - Mostra queste informazioni\n"
+        f"/register - Registra questo canale\n"
         f"/stop - Disattiva per questo canale\n"
         f"/status - Stato del servizio",
         parse_mode='Markdown'
     )
+
+# Handler per il comando /register
+@bot.message_handler(commands=['register'])
+def handle_register(message):
+    """Registra manualmente il canale corrente"""
+    chat_id = message.chat.id
+    chat_title = message.chat.title or f"Chat {chat_id}"
+    
+    channels = load_registered_channels()
+    
+    # Controlla se il canale è già registrato
+    if any(ch['chat_id'] == chat_id for ch in channels):
+        bot.reply_to(
+            message,
+            "✅ **Canale già registrato!**\n\n"
+            "Questo canale riceve già i tweet automaticamente.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Registra il canale
+    channels.append({
+        'chat_id': chat_id,
+        'chat_title': chat_title,
+        'added_date': datetime.now().isoformat()
+    })
+    save_registered_channels(channels)
+    
+    bot.reply_to(
+        message,
+        f"🎉 **Canale registrato con successo!**\n\n"
+        f"📢 **Canale:** {chat_title}\n"
+        f"🐦 **Monitoraggio:** @{TWITTER_USERNAME}\n"
+        f"⏰ **Controllo:** Ogni 10 minuti\n\n"
+        f"Da ora riceverai automaticamente tutti i nuovi tweet!",
+        parse_mode='Markdown'
+    )
+    logger.info(f"✅ Canale registrato manualmente: {chat_title} (ID: {chat_id})")
 
 # Handler per il comando /stop
 @bot.message_handler(commands=['stop'])
@@ -137,7 +193,7 @@ def handle_stop(message):
         message,
         "👋 **Bot disattivato**\n\n"
         "Non riceverai più i tweet automaticamente.\n"
-        "Usa /start per riattivare il servizio.",
+        "Usa /register per riattivare il servizio.",
         parse_mode='Markdown'
     )
     logger.info(f"❌ Canale rimosso: {message.chat.title} (ID: {chat_id})")
@@ -493,6 +549,44 @@ def index():
 def health():
     """Health check per Render"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.route('/webhook-info')
+def webhook_info():
+    """Verifica lo stato del webhook"""
+    try:
+        webhook_info = bot.get_webhook_info()
+        return {
+            "webhook_url": webhook_info.url,
+            "has_custom_certificate": webhook_info.has_custom_certificate,
+            "pending_update_count": webhook_info.pending_update_count,
+            "last_error_date": webhook_info.last_error_date,
+            "last_error_message": webhook_info.last_error_message,
+            "max_connections": webhook_info.max_connections,
+            "allowed_updates": webhook_info.allowed_updates,
+            "configured_webhook_url": WEBHOOK_URL,
+            "bot_token_configured": bool(TELEGRAM_BOT_TOKEN),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {"error": str(e), "timestamp": datetime.now().isoformat()}
+
+@app.route('/test-bot')
+def test_bot():
+    """Testa se il bot funziona"""
+    try:
+        bot_info = bot.get_me()
+        return {
+            "bot_username": bot_info.username,
+            "bot_id": bot_info.id,
+            "bot_first_name": bot_info.first_name,
+            "can_join_groups": bot_info.can_join_groups,
+            "can_read_all_group_messages": bot_info.can_read_all_group_messages,
+            "supports_inline_queries": bot_info.supports_inline_queries,
+            "status": "Bot funzionante",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "Bot non funzionante", "timestamp": datetime.now().isoformat()}
 
 @app.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
