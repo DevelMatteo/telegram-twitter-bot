@@ -604,9 +604,10 @@ def setup_webhook():
     if WEBHOOK_URL:
         webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
         try:
-            # Rimuovi webhook esistenti
+            # Rimuovi webhook esistenti e ferma polling
             bot.remove_webhook()
-            time.sleep(2)
+            bot.stop_polling()
+            time.sleep(3)
             
             # Configura nuovo webhook
             result = bot.set_webhook(url=webhook_url)
@@ -616,16 +617,16 @@ def setup_webhook():
                 # Verifica che il webhook sia attivo
                 webhook_info = bot.get_webhook_info()
                 logger.info(f"📡 Webhook info: {webhook_info.url}")
+                return True
             else:
                 logger.error("❌ Errore nella configurazione del webhook")
+                return False
         except Exception as e:
             logger.error(f"❌ Errore nel setup webhook: {e}")
-            # Fallback al polling se webhook fallisce
-            logger.info("🔄 Fallback al polling...")
-            start_polling_fallback()
+            return False
     else:
-        logger.warning("⚠️ WEBHOOK_URL non configurato, uso polling locale")
-        start_polling_fallback()
+        logger.warning("⚠️ WEBHOOK_URL non configurato")
+        return False
 
 def start_polling_fallback():
     """Avvia polling come fallback se webhook non funziona"""
@@ -651,8 +652,12 @@ def main():
     
     # Configura webhook se siamo su Render, altrimenti usa polling
     if WEBHOOK_URL:
-        setup_webhook()
-        logger.info("🌐 Modalità webhook attiva")
+        webhook_success = setup_webhook()
+        if webhook_success:
+            logger.info("🌐 Modalità webhook attiva")
+        else:
+            logger.warning("⚠️ Webhook fallito, uso polling")
+            start_polling_fallback()
     else:
         logger.info("🔄 Modalità polling attiva (sviluppo)")
         start_polling_fallback()
