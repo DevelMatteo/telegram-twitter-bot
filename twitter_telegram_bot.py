@@ -170,27 +170,32 @@ def scrape_twitter_nitter(username):
     """
     tweets = []
     
-    # Lista estesa di istanze Nitter pubbliche
+    # Lista aggiornata di istanze Nitter funzionanti
     nitter_instances = [
+        "https://nitter.poast.org",
+        "https://nitter.privacydev.net", 
         "https://nitter.net",
         "https://nitter.it",
-        "https://nitter.privacydev.net",
-        "https://nitter.kavin.rocks",
+        "https://nitter.cz",
         "https://nitter.fdn.fr",
         "https://nitter.1d4.us",
-        "https://nitter.esmailelbob.xyz",
-        "https://nitter.lunar.icu",
-        "https://n.ramle.be",
-        "https://nitter.weiler.rocks",
-        "https://nitter.sethforprivacy.com",
-        "https://nitter.cutelab.space",
-        "https://nitter.nl",
-        "https://nitter.mint.lgbt",
-        "https://nitter.bus-hit.me"
+        "https://nitter.kavin.rocks",
+        "https://nitter.unixfox.eu",
+        "https://nitter.domain.glass",
+        "https://nitter.eu",
+        "https://nitter.namazso.eu",
+        "https://bird.trom.tf",
+        "https://nitter.moomoo.me",
+        "https://nitter.fly.dev"
     ]
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
     }
     
     for instance in nitter_instances:
@@ -198,31 +203,61 @@ def scrape_twitter_nitter(username):
             url = f"{instance}/{username}"
             logger.info(f"Tentativo con {instance}...")
             
-            # Disabilita la verifica SSL per istanze con certificati problematici
-            response = requests.get(url, headers=headers, timeout=15, verify=False)
+            # Prova prima con SSL, poi senza se fallisce
+            try:
+                response = requests.get(url, headers=headers, timeout=20)
+            except:
+                response = requests.get(url, headers=headers, timeout=20, verify=False)
             
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
                 
-                # Trova i tweet nella pagina
-                tweet_containers = soup.find_all('div', class_='timeline-item')
+                # Prova diversi selettori per i tweet (le strutture cambiano)
+                tweet_containers = (
+                    soup.find_all('div', class_='timeline-item') or
+                    soup.find_all('div', class_='tweet') or
+                    soup.find_all('article') or
+                    soup.find_all('div', attrs={'data-tweet-id': True})
+                )
+                
+                if not tweet_containers:
+                    logger.warning(f"Nessun contenuto tweet trovato su {instance}")
+                    continue
                 
                 for container in tweet_containers[:5]:  # Prendi solo gli ultimi 5 tweet
                     try:
-                        # Estrai il testo del tweet
-                        tweet_content = container.find('div', class_='tweet-content')
+                        # Prova diversi selettori per il contenuto del tweet
+                        tweet_content = (
+                            container.find('div', class_='tweet-content') or
+                            container.find('div', class_='tweet-text') or
+                            container.find('p') or
+                            container.find('div', class_='content')
+                        )
+                        
                         if tweet_content:
                             tweet_text = tweet_content.get_text().strip()
                             
-                            # Estrai il timestamp
-                            time_element = container.find('span', class_='tweet-date')
-                            tweet_time = time_element.get_text().strip() if time_element else "Data sconosciuta"
+                            if not tweet_text or len(tweet_text) < 10:
+                                continue
+                            
+                            # Prova diversi selettori per il timestamp
+                            time_element = (
+                                container.find('span', class_='tweet-date') or
+                                container.find('time') or
+                                container.find('span', class_='date') or
+                                container.find('a', class_='tweet-link')
+                            )
+                            
+                            if time_element:
+                                tweet_time = time_element.get_text().strip() or time_element.get('datetime', 'Data sconosciuta')
+                            else:
+                                tweet_time = "Data sconosciuta"
                             
                             # Estrai eventuali link alle immagini
                             images = []
-                            img_elements = container.find_all('img', class_='attachment')
+                            img_elements = container.find_all('img')
                             for img in img_elements:
-                                if img.get('src'):
+                                if img.get('src') and ('pic.twitter.com' in img.get('src', '') or 'attachment' in img.get('class', [])):
                                     img_url = img['src']
                                     if img_url.startswith('/'):
                                         img_url = f"{instance}{img_url}"
@@ -240,15 +275,24 @@ def scrape_twitter_nitter(username):
                         continue
                 
                 if tweets:
-                    logger.info(f"Trovati {len(tweets)} tweet con {instance}")
+                    logger.info(f"✅ Trovati {len(tweets)} tweet con {instance}")
                     return tweets
+                else:
+                    logger.warning(f"Nessun tweet valido estratto da {instance}")
                     
         except Exception as e:
             logger.error(f"Errore con {instance}: {e}")
             continue
     
-    logger.warning("Nessuna istanza Nitter disponibile")
-    return []
+    # Se nessuna istanza Nitter funziona, crea un tweet di test per verificare che il sistema funzioni
+    logger.warning("⚠️ Nessuna istanza Nitter disponibile - creazione tweet di test")
+    test_tweet = {
+        'text': f"🔧 Test del bot - Monitoraggio di @{username} attivo ma istanze Nitter temporaneamente non disponibili. Il servizio riprenderà automaticamente quando le istanze torneranno online.",
+        'time': datetime.now().strftime("%Y-%m-%d %H:%M"),
+        'images': [],
+        'id': get_tweet_id("test_tweet", str(datetime.now()))
+    }
+    return [test_tweet]
 
 def format_tweet_for_telegram(tweet):
     """Formatta il tweet per Telegram"""
