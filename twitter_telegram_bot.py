@@ -164,19 +164,89 @@ def handle_status(message):
         parse_mode='Markdown'
     )
 
+def scrape_twitter_rss(username):
+    """
+    Metodo alternativo: usa RSS feed di Nitter
+    """
+    tweets = []
+    
+    # Lista di istanze Nitter con RSS
+    rss_instances = [
+        "https://nitter.cz",
+        "https://nitter.poast.org",
+        "https://nitter.privacydev.net",
+        "https://nitter.net"
+    ]
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader)'
+    }
+    
+    for instance in rss_instances:
+        try:
+            rss_url = f"{instance}/{username}/rss"
+            logger.info(f"Tentativo RSS con {instance}...")
+            
+            response = requests.get(rss_url, headers=headers, timeout=15, verify=False)
+            
+            if response.status_code == 200:
+                from xml.etree import ElementTree as ET
+                
+                try:
+                    root = ET.fromstring(response.content)
+                    items = root.findall('.//item')
+                    
+                    for item in items[:5]:
+                        title = item.find('title')
+                        pub_date = item.find('pubDate')
+                        description = item.find('description')
+                        
+                        if title is not None and title.text:
+                            tweet_text = title.text.strip()
+                            tweet_time = pub_date.text if pub_date is not None else "Data sconosciuta"
+                            
+                            tweets.append({
+                                'text': tweet_text,
+                                'time': tweet_time,
+                                'images': [],
+                                'id': get_tweet_id(tweet_text, tweet_time)
+                            })
+                    
+                    if tweets:
+                        logger.info(f"✅ Trovati {len(tweets)} tweet via RSS da {instance}")
+                        return tweets
+                        
+                except ET.ParseError as e:
+                    logger.error(f"Errore parsing RSS da {instance}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Errore RSS con {instance}: {e}")
+            continue
+    
+    return []
+
 def scrape_twitter_nitter(username):
     """
     Scraping dei tweet usando Nitter (frontend alternativo a Twitter)
     """
     tweets = []
     
+    # Prima prova con RSS (più affidabile)
+    tweets = scrape_twitter_rss(username)
+    if tweets:
+        return tweets
+    
+    # Se RSS fallisce, usa scraping HTML
+    logger.info("RSS fallito, provo con scraping HTML...")
+    
     # Lista aggiornata di istanze Nitter funzionanti
     nitter_instances = [
+        "https://nitter.cz",
         "https://nitter.poast.org",
         "https://nitter.privacydev.net", 
         "https://nitter.net",
         "https://nitter.it",
-        "https://nitter.cz",
         "https://nitter.fdn.fr",
         "https://nitter.1d4.us",
         "https://nitter.kavin.rocks",
@@ -407,73 +477,3 @@ def tweet_monitor():
         # Aspetta 10 minuti prima del prossimo controllo
         logger.info(f"⏰ Prossimo controllo tra 10 minuti... ({len(load_registered_channels())} canali attivi)")
         time.sleep(600)
-
-# Flask routes per Render
-@app.route('/')
-def index():
-    """Route principale per verificare che il servizio sia attivo"""
-    return {
-        "status": "Bot attivo",
-        "bot_username": f"@{TWITTER_USERNAME}",
-        "canali_attivi": len(load_registered_channels()),
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.route('/health')
-def health():
-    """Health check per Render"""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
-@app.route(f'/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
-def webhook():
-    """Webhook per ricevere messaggi da Telegram"""
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return ''
-    else:
-        return 'Bad Request', 400
-
-def setup_webhook():
-    """Configura il webhook per Telegram"""
-    if WEBHOOK_URL:
-        webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
-        try:
-            bot.remove_webhook()
-            time.sleep(1)
-            result = bot.set_webhook(url=webhook_url)
-            if result:
-                logger.info(f"✅ Webhook configurato: {webhook_url}")
-            else:
-                logger.error("❌ Errore nella configurazione del webhook")
-        except Exception as e:
-            logger.error(f"❌ Errore nel setup webhook: {e}")
-    else:
-        logger.warning("⚠️ WEBHOOK_URL non configurato, uso polling locale")
-
-def main():
-    """Funzione principale"""
-    logger.info("🤖 Avvio Bot Telegram Multi-Canale per Render")
-    logger.info(f"📢 Account Twitter monitorato: @{TWITTER_USERNAME}")
-    logger.info(f"🌐 Porta: {PORT}")
-    
-    # Configura webhook se siamo su Render
-    if WEBHOOK_URL:
-        setup_webhook()
-    
-    # Avvia il monitoraggio tweet in un thread separato
-    tweet_thread = threading.Thread(target=tweet_monitor, daemon=True)
-    tweet_thread.start()
-    
-    # Avvia il server Flask
-    logger.info("🚀 Server Flask attivo")
-    app.run(host='0.0.0.0', port=PORT, debug=False)
-
-if __name__ == "__main__":
-    # Verifica che il token sia configurato
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("❌ TELEGRAM_BOT_TOKEN non configurato!")
-        exit(1)
-    
-    main()
