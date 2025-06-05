@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Installa dipendenze sistema
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Copia file
+COPY requirements.txt .
+COPY bot.py .
+
+# Installa Python packages
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Esponi porta per health check
+EXPOSE 10000
+
+# Comando di avvio
+CMD ["python", "bot.py"]
