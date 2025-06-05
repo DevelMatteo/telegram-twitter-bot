@@ -551,23 +551,21 @@ def main():
     logger.info(f"📢 Account Twitter monitorato: @{TWITTER_USERNAME}")
     logger.info(f"🌐 Porta: {PORT}")
     
-    # Configura webhook se siamo su Render
-    if WEBHOOK_URL:
-        setup_webhook()
-    
     # Avvia il monitoraggio tweet in un thread separato
     tweet_thread = threading.Thread(target=tweet_monitor, daemon=True)
     tweet_thread.start()
     
-    # Se eseguito direttamente (non con Gunicorn), avvia Flask
-    if __name__ == "__main__":
-        logger.info("🚀 Server Flask attivo (modalità sviluppo)")
-        app.run(host='0.0.0.0', port=PORT, debug=False)
+    # Configura webhook se siamo su Render, altrimenti usa polling
+    if WEBHOOK_URL:
+        setup_webhook()
+        logger.info("🌐 Modalità webhook attiva")
+    else:
+        logger.info("🔄 Modalità polling attiva (sviluppo)")
+        start_polling_fallback()
 
 # Avvia automaticamente quando importato da Gunicorn
-if WEBHOOK_URL:
-    logger.info("🚀 Avvio automatico per Gunicorn")
-    main()
+logger.info("🚀 Inizializzazione automatica")
+main()
 
 if __name__ == "__main__":
     # Verifica che il token sia configurato
@@ -575,4 +573,6 @@ if __name__ == "__main__":
         logger.error("❌ TELEGRAM_BOT_TOKEN non configurato!")
         exit(1)
     
-    main()
+    # Avvia Flask solo se eseguito direttamente
+    logger.info("🚀 Server Flask attivo (modalità sviluppo)")
+    app.run(host='0.0.0.0', port=PORT, debug=False)
